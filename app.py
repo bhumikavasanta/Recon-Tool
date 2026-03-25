@@ -50,15 +50,38 @@ if df1 is not None and df2 is not None:
     else:
         account_col = st.selectbox("Select the account column:", common_columns, key="account_col")
         
+        # Column mapping
+        df1_cols = [c for c in df1.columns if c != account_col]
+        df2_cols = [c for c in df2.columns if c != account_col]
+
+        # Columns to compare
+        st.subheader("Select columns to compare")
+        compare_cols = st.multiselect("Choose File 1 columns to include in diff", df1_cols, default=df1_cols)
+
+        # Dynamic mapping for selected columns only
+        st.subheader("Column Mapping")
+        mappings = {}
+        for col1 in compare_cols:
+            mapped_col2 = st.selectbox(f"Map '{col1}' from File 1 to:", df2_cols, key=f"map_{col1}")
+            mappings[col1] = mapped_col2
+
+        # Show active mapping table (after selection)
+        if compare_cols:
+            active_map = pd.DataFrame([
+                {'File1 Column': col1, 'File2 Column': mappings[col1]}
+                for col1 in compare_cols
+            ])
+            st.subheader("Active Mapping")
+            st.dataframe(active_map)
+
         # Merge dataframes on account column
         merged = pd.merge(df1, df2, on=account_col, suffixes=('_file1', '_file2'), how='outer')
         
         # Find accounts unique to each file
-        file1_cols = [f'{col}_file1' for col in common_columns if col != account_col]
-        file2_cols = [f'{col}_file2' for col in common_columns if col != account_col]
-        
-        only_in_file1 = merged[merged[file2_cols].isna().all(axis=1)][account_col].tolist()
-        only_in_file2 = merged[merged[file1_cols].isna().all(axis=1)][account_col].tolist()
+        accounts_file1 = set(df1[account_col])
+        accounts_file2 = set(df2[account_col])
+        only_in_file1 = list(accounts_file1 - accounts_file2)
+        only_in_file2 = list(accounts_file2 - accounts_file1)
         
         unique_accounts = []
         for acc in only_in_file1:
@@ -73,21 +96,18 @@ if df1 is not None and df2 is not None:
         
         # Find differences per column
         column_diffs = {}
-        for col in common_columns:
-            if col == account_col:
-                continue
-            column_diffs[col] = []
+        for col1 in compare_cols:
+            column_diffs[col1] = []
         
         for idx, row in merged.iterrows():
             account = row[account_col]
             # Only process accounts present in both files
             if account in only_in_file1 or account in only_in_file2:
                 continue
-            for col in common_columns:
-                if col == account_col:
-                    continue
-                val1 = row.get(f'{col}_file1')
-                val2 = row.get(f'{col}_file2')
+            for col1 in compare_cols:
+                col2 = mappings[col1]
+                val1 = row.get(f'{col1}_file1')
+                val2 = row.get(f'{col2}_file2')
                 if pd.isna(val1) and pd.isna(val2):
                     continue
                 if val1 != val2:
@@ -97,10 +117,10 @@ if df1 is not None and df2 is not None:
                             diff_val = val1 - val2
                     except:
                         pass
-                    column_diffs[col].append({
+                    column_diffs[col1].append({
                         'Account': account,
-                        'Value_File1': val1,
-                        'Value_File2': val2,
+                        f"{col1}_file1": val1,
+                        f"{col2}_file2": val2,
                         'Difference': diff_val
                     })
         
@@ -110,13 +130,13 @@ if df1 is not None and df2 is not None:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             if unique_accounts:
                 unique_df.to_excel(writer, index=False, sheet_name='Unique Accounts')
-            for col, data in column_diffs.items():
+            for col1, data in column_diffs.items():
                 if data:
                     has_diffs = True
                     col_df = pd.DataFrame(data)
-                    st.subheader(f"Differences in Column: {col}")
+                    st.subheader(f"Differences in Column: {col1} (mapped to {mappings[col1]})")
                     st.dataframe(col_df)
-                    col_df.to_excel(writer, index=False, sheet_name=col[:31])  # Sheet name limit
+                    col_df.to_excel(writer, index=False, sheet_name=col1[:31])  # Sheet name limit
             
             # Autosize columns in all sheets
             for sheet_name in writer.sheets:
