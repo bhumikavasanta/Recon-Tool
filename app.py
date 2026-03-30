@@ -62,8 +62,22 @@ if df1 is not None and df2 is not None:
         st.subheader("Column Mapping")
         mappings = {}
         for col1 in compare_cols:
-            mapped_col2 = st.selectbox(f"Map '{col1}' from File 1 to:", df2_cols, key=f"map_{col1}")
-            mappings[col1] = mapped_col2
+            # Automatically map if column name exists in File 2
+            if col1 in df2_cols:
+                mappings[col1] = col1
+                st.info(f"✓ '{col1}' automatically mapped to '{col1}' (File 2)")
+            else:
+                # For non-matching columns, use "account" as default
+                default_idx = 0
+                if "account" in df2_cols:
+                    default_idx = df2_cols.index("account")
+                mapped_col2 = st.selectbox(
+                    f"Map '{col1}' from File 1 to:", 
+                    df2_cols, 
+                    index=default_idx,
+                    key=f"map_{col1}"
+                )
+                mappings[col1] = mapped_col2
 
         # Show active mapping table (after selection)
         if compare_cols:
@@ -126,35 +140,38 @@ if df1 is not None and df2 is not None:
         
         # Display and prepare for download
         has_diffs = False
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            if unique_accounts:
-                unique_df.to_excel(writer, index=False, sheet_name='Unique Accounts')
-            for col1, data in column_diffs.items():
-                if data:
-                    has_diffs = True
-                    col_df = pd.DataFrame(data)
-                    st.subheader(f"Differences in Column: {col1} (mapped to {mappings[col1]})")
-                    st.dataframe(col_df)
-                    col_df.to_excel(writer, index=False, sheet_name=col1[:31])  # Sheet name limit
-            
-            # Autosize columns in all sheets
-            for sheet_name in writer.sheets:
-                worksheet = writer.sheets[sheet_name]
-                for column in worksheet.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if cell.value and len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)  # Cap width at 50
-                    worksheet.column_dimensions[column_letter].width = adjusted_width
         
-        has_content = bool(unique_accounts) or has_diffs
+        # First, check if there's any content to write
+        has_content = bool(unique_accounts) or any(column_diffs.values())
+        
         if has_content:
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                if unique_accounts:
+                    unique_df.to_excel(writer, index=False, sheet_name='Unique Accounts')
+                for col1, data in column_diffs.items():
+                    if data:
+                        has_diffs = True
+                        col_df = pd.DataFrame(data)
+                        st.subheader(f"Differences in Column: {col1} (mapped to {mappings[col1]})")
+                        st.dataframe(col_df)
+                        col_df.to_excel(writer, index=False, sheet_name=col1[:31])  # Sheet name limit
+                
+                # Autosize columns in all sheets
+                for sheet_name in writer.sheets:
+                    worksheet = writer.sheets[sheet_name]
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if cell.value and len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)  # Cap width at 50
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+            
             output.seek(0)
             st.download_button(
                 label="Download Comparison Report",
