@@ -2,6 +2,14 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
+import streamlit as st
+
+st.set_page_config(
+    page_title="Recon Tool",
+    page_icon="📊",
+    # layout="wide"
+)
+
 st.title("Recon Tool")
 
 # File uploader for the first Excel sheet
